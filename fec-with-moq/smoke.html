@@ -1,0 +1,63 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Shaka MSF smoke (uncompiled)</title>
+<script>
+  // Closure's loader for uncompiled Shaka (same as demo/load.js importScript)
+  window.CLOSURE_IMPORT_SCRIPT = function(src) {
+    var s = document.createElement('script'); s.src = src; s.defer = true; s.async = false;
+    document.head.appendChild(s); return true;
+  };
+</script>
+<script src="../node_modules/google-closure-library/closure/goog/base.js"></script>
+<script src="../dist/deps.js"></script>
+<script src="../lib/debug/asserts.js"></script>
+<script src="../shaka-player.uncompiled.js"></script>
+</head>
+<body style="background:#000">
+<video id="v" muted autoplay playsinline width="640" height="360"></video>
+<script>
+// Smoke test: uncompiled Shaka plays a live MSF broadcast over WebTransport. No FEC.
+window.smokeLog = [];
+function log(...a) {
+  const s = a.map(x => typeof x === 'string' ? x : JSON.stringify(x)).join(' ');
+  window.smokeLog.push(new Date().toISOString() + ' ' + s);
+  console.log('[smoke] ' + s);
+}
+async function main() {
+  const q = new URLSearchParams(location.search);
+  shaka.polyfill.installAll();
+  log('shaka', shaka.Player.version, 'browserSupported', shaka.Player.isBrowserSupported(),
+      'WebTransport', typeof WebTransport);
+  try { shaka.log.setLevel(shaka.log.Level[q.get('loglevel') || 'INFO']); } catch (e) {}
+  const video = document.getElementById('v');
+  const player = new shaka.Player();
+  await player.attach(video);
+  window.player = player;
+  player.addEventListener('error', e => {
+    const d = e.detail;
+    log('PLAYER ERROR', d.code, d.category, d.severity, JSON.stringify(d.data).slice(0, 800));
+  });
+  for (const ev of ['loading', 'loaded', 'trackschanged', 'buffering', 'adaptation']) {
+    player.addEventListener(ev, e => log('event', ev, e.buffering === undefined ? '' : e.buffering));
+  }
+  for (const ev of ['playing', 'waiting', 'stalled', 'error']) {
+    video.addEventListener(ev, () => log('video', ev, video.currentTime.toFixed(2),
+        video.error ? (video.error.code + ' ' + video.error.message) : ''));
+  }
+  player.configure({manifest: {msf: {
+    namespaces: q.get('ns').split('/'),
+    version: q.get('ver') || 'draft-16',
+  }}});
+  try {
+    await player.load(q.get('url'), null, 'application/msf');
+    log('LOADED', JSON.stringify(player.getVariantTracks().map(t => [t.codecs, t.width, t.height])));
+  } catch (e) {
+    log('LOAD FAILED', e.code, e.category, JSON.stringify(e.data).slice(0, 800));
+  }
+}
+window.addEventListener('load', main);
+</script>
+</body>
+</html>
